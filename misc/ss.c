@@ -51,6 +51,15 @@
 #include <linux/tipc_netlink.h>
 #include <linux/tipc_sockets_diag.h>
 
+#ifndef AF_VSOCK
+#define PF_VSOCK       40
+#define AF_VSOCK       PF_VSOCK
+#undef PF_MAX
+#undef AF_MAX
+#define PF_MAX         41
+#define AF_MAX         PF_MAX
+#endif /* AF_VSOCK */
+
 #define MAGIC_SEQ 123456
 #define BUF_CHUNK (1024 * 1024)
 #define LEN_ALIGN(x) (((x) + 1) & ~1)
