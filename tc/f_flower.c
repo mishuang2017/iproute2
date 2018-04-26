@@ -80,7 +80,8 @@ static void explain(void)
 		"                       enc_tos MASKED-IP_TOS |\n"
 		"                       enc_ttl MASKED-IP_TTL |\n"
 		"                       ip_flags IP-FLAGS | \n"
-		"                       enc_dst_port [ port_number ] }\n"
+		"                       enc_dst_port [ port_number ] |\n"
+		"                       FIXME ct_state CT_STATE }\n"
 		"       FILTERID := X:Y:Z\n"
 		"       MASKED_LLADDR := { LLADDR | LLADDR/MASK | LLADDR/BITS }\n"
 		"       ACTION-SPEC := ... look at individual actions\n"
@@ -209,6 +210,54 @@ static int flower_parse_matching_flags(char *str,
 		token = strtok(NULL, "/");
 	}
 
+	return 0;
+}
+
+static int flower_parse_ct_state(char *str, int value_type, int mask_type,
+				 struct nlmsghdr *n)
+{
+	int flags = 0;
+	int mask = 0;
+	int len ,i;
+
+	struct ct_state {
+		char *str;
+		int flag;
+		bool set;
+	} ct_states[] = {
+		{ "+new", TCA_FLOWER_KEY_CT_FLAGS_NEW, true },
+		{ "-new", TCA_FLOWER_KEY_CT_FLAGS_NEW, false },
+		{ "+est", TCA_FLOWER_KEY_CT_FLAGS_ESTABLISHED, true },
+		{ "-est", TCA_FLOWER_KEY_CT_FLAGS_ESTABLISHED, false },
+		{ "+inv", TCA_FLOWER_KEY_CT_FLAGS_INVALID, true },
+		{ "-inv", TCA_FLOWER_KEY_CT_FLAGS_INVALID, false },
+		{ "+trk", TCA_FLOWER_KEY_CT_FLAGS_TRACKED, true },
+		{ "-trk", TCA_FLOWER_KEY_CT_FLAGS_TRACKED, false },
+	};
+
+	fprintf(stderr, "[yk] flower_parse_ct_state str: %s\n", str);
+
+	while (*str != '\0') {
+		for (i = 0; i < ARRAY_SIZE(ct_states); i++) {
+			len = strlen(ct_states[i].str);
+			if (strncmp(str, ct_states[i].str, len))
+				continue;
+
+			if (ct_states[i].set)
+				flags |= ct_states[i].flag;
+			mask |= ct_states[i].flag;
+			break;
+		}
+
+		if (i == ARRAY_SIZE(ct_states))
+			return -1;
+
+		str += len;
+	}
+
+	fprintf(stderr, "[yk] flower_parse_ct_state flags: %X, mask: %X\n", flags, mask);
+	addattr8(n, MAX_MSG, value_type, flags);
+	addattr8(n, MAX_MSG, mask_type, mask);
 	return 0;
 }
 
@@ -666,6 +715,15 @@ static int flower_parse_opt(struct filter_util *qu, char *handle,
 			flags |= TCA_CLS_FLAGS_SKIP_HW;
 		} else if (matches(*argv, "skip_sw") == 0) {
 			flags |= TCA_CLS_FLAGS_SKIP_SW;
+		} else if (matches(*argv, "ct_state") == 0) {
+			NEXT_ARG();
+			ret = flower_parse_ct_state(*argv,
+						    TCA_FLOWER_KEY_CT_STATE,
+						    TCA_FLOWER_KEY_CT_STATE_MASK, n);
+			if (ret < 0) {
+				fprintf(stderr, "Illegal \"ct_state\"\n");
+				return -1;
+			}
 		} else if (matches(*argv, "indev") == 0) {
 			NEXT_ARG();
 			if (check_ifname(*argv))
@@ -1328,6 +1386,23 @@ static void flower_print_tcp_flags(const char *name, struct rtattr *flags_attr,
 	print_string(PRINT_ANY, name, namefrm, out);
 }
 
+static void flower_print_ct_state_flags(char *name, struct rtattr *flags_attr,
+					struct rtattr *mask_attr)
+{
+	SPRINT_BUF(namefrm);
+	SPRINT_BUF(out);
+	size_t done;
+
+	if (!flags_attr)
+		return;
+
+	done = sprintf(out, "%x", rta_getattr_u8(flags_attr));
+	if (mask_attr)
+		sprintf(out + done, "/%x", rta_getattr_u8(mask_attr));
+
+	sprintf(namefrm, "\n  %s %%s", name);
+	print_string(PRINT_ANY, name, namefrm, out);
+}
 
 static void flower_print_key_id(const char *name, struct rtattr *attr)
 {
@@ -1430,6 +1505,10 @@ static int flower_print_opt(struct filter_util *qu, FILE *f,
 		print_string(PRINT_ANY, "indev", "\n  indev %s",
 			     rta_getattr_str(attr));
 	}
+
+	if (tb[TCA_FLOWER_KEY_CT_STATE])
+		flower_print_ct_state_flags("ct_state", tb[TCA_FLOWER_KEY_CT_STATE],
+					    tb[TCA_FLOWER_KEY_CT_STATE_MASK]);
 
 	open_json_object("keys");
 
