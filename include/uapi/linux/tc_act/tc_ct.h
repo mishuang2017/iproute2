@@ -10,6 +10,11 @@
 struct tc_conntrack {
 	tc_gen;
 	__u16 zone;
+	__u32 labels[4];
+	__u32 labels_mask[4];
+	__u32 mark;
+	__u32 mark_mask;
+	bool commit;
 };
 
 enum {

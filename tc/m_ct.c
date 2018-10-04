@@ -45,7 +45,7 @@ static int
 parse_conntrack(struct action_util *a, int *argc_p, char ***argv_p, int tca_id,
 		struct nlmsghdr *n)
 {
-	struct tc_conntrack sel = {};
+	struct tc_conntrack sel = { 0 };
 	char **argv = *argv_p;
 	int argc = *argc_p;
 	int ok = 0;
@@ -97,6 +97,8 @@ parse_conntrack(struct action_util *a, int *argc_p, char ***argv_p, int tca_id,
 			argv++;
 		}
 	}
+
+	sel.commit = true;
 
 	tail = NLMSG_TAIL(n);
 	addattr_l(n, MAX_MSG, tca_id, NULL, 0);
