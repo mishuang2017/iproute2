@@ -374,8 +374,8 @@ static int flower_parse_ct_state(char *str, struct nlmsghdr *n)
 		str += len + 1;
 	}
 
-	addattr16(n, MAX_MSG, TCA_FLOWER_KEY_CT_STATE, flags);
-	addattr16(n, MAX_MSG, TCA_FLOWER_KEY_CT_STATE_MASK, mask);
+	addattr8(n, MAX_MSG, TCA_FLOWER_KEY_CT_STATE, flags);
+	addattr8(n, MAX_MSG, TCA_FLOWER_KEY_CT_STATE_MASK, mask);
 	return 0;
 }
 

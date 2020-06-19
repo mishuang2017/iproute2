@@ -28,12 +28,12 @@ usage(void)
 	exit(-1);
 }
 
-static int ct_parse_nat_addr_range(const char *str, struct nlmsghdr *n)
+static int ct_parse_nat_addr_range(const char *str, struct nlmsghdr *n, inet_prefix * in_addr1, inet_prefix *in_addr2)
 {
-	inet_prefix addr = { .family = AF_UNSPEC, };
+	/*inet_prefix addr = { .family = AF_UNSPEC, };*/
 	char *addr1, *addr2 = 0;
 	SPRINT_BUF(buffer);
-	int attr;
+	/*int attr;*/
 	int ret;
 
 	strncpy(buffer, str, sizeof(buffer) - 1);
@@ -45,26 +45,26 @@ static int ct_parse_nat_addr_range(const char *str, struct nlmsghdr *n)
 		addr2++;
 	}
 
-	ret = get_addr(&addr, addr1, AF_UNSPEC);
+	ret = get_addr(in_addr1, addr1, AF_UNSPEC);
 	if (ret)
 		return ret;
-	attr = addr.family == AF_INET ? TCA_CT_NAT_IPV4_MIN :
+	/*attr = addr.family == AF_INET ? TCA_CT_NAT_IPV4_MIN :
 					TCA_CT_NAT_IPV6_MIN;
-	addattr_l(n, MAX_MSG, attr, addr.data, addr.bytelen);
+	addattr_l(n, MAX_MSG, attr, addr.data, addr.bytelen);*/
 
 	if (addr2) {
-		ret = get_addr(&addr, addr2, addr.family);
+		ret = get_addr(in_addr2, addr2, in_addr1->family);
 		if (ret)
 			return ret;
 	}
-	attr = addr.family == AF_INET ? TCA_CT_NAT_IPV4_MAX :
+	/*attr = addr.family == AF_INET ? TCA_CT_NAT_IPV4_MAX :
 					TCA_CT_NAT_IPV6_MAX;
-	addattr_l(n, MAX_MSG, attr, addr.data, addr.bytelen);
+	addattr_l(n, MAX_MSG, attr, addr.data, addr.bytelen);*/
 
 	return 0;
 }
 
-static int ct_parse_nat_port_range(const char *str, struct nlmsghdr *n)
+static int ct_parse_nat_port_range(const char *str, struct nlmsghdr *n, __be16 * portn, __be16 *portm)
 {
 	char *port1, *port2 = 0;
 	SPRINT_BUF(buffer);
@@ -83,14 +83,15 @@ static int ct_parse_nat_port_range(const char *str, struct nlmsghdr *n)
 	ret = get_be16(&port, port1, 10);
 	if (ret)
 		return -1;
-	addattr16(n, MAX_MSG, TCA_CT_NAT_PORT_MIN, port);
-
+	/*addattr16(n, MAX_MSG, TCA_CT_NAT_PORT_MIN, port);*/
+	*portn = port;
 	if (port2) {
 		ret = get_be16(&port, port2, 10);
 		if (ret)
 			return -1;
 	}
-	addattr16(n, MAX_MSG, TCA_CT_NAT_PORT_MAX, port);
+	/*addattr16(n, MAX_MSG, TCA_CT_NAT_PORT_MAX, port);*/
+	*portm = port;
 
 	return 0;
 }
@@ -126,7 +127,7 @@ static int ct_parse_u16(char *str, int value_type, int mask_type,
 }
 
 static int ct_parse_u32(char *str, int value_type, int mask_type,
-			struct nlmsghdr *n)
+			struct nlmsghdr *n, struct tc_conntrack * sel)
 {
 	__u32 value, mask;
 	char *slash;
@@ -135,28 +136,28 @@ static int ct_parse_u32(char *str, int value_type, int mask_type,
 	if (slash)
 		*slash = '\0';
 
-	if (get_u32(&value, str, 0))
+	if (get_u32(&sel->mark/*&value*/, str, 0))
 		return -1;
 
 	if (slash) {
-		if (get_u32(&mask, slash + 1, 0))
+		if (get_u32(&sel->mark_mask/*&mask*/, slash + 1, 0))
 			return -1;
 	} else {
 		mask = UINT32_MAX;
 	}
 
-	addattr32(n, MAX_MSG, value_type, value);
-	addattr32(n, MAX_MSG, mask_type, mask);
+	/*addattr32(n, MAX_MSG, value_type, value);
+	addattr32(n, MAX_MSG, mask_type, mask);*/
 
 	return 0;
 }
 
-static int ct_parse_mark(char *str, struct nlmsghdr *n)
+static int ct_parse_mark(char *str, struct nlmsghdr *n, struct tc_conntrack * sel)
 {
-	return ct_parse_u32(str, TCA_CT_MARK, TCA_CT_MARK_MASK, n);
+	return ct_parse_u32(str, TCA_CT_MARK, TCA_CT_MARK_MASK, n, sel);
 }
 
-static int ct_parse_labels(char *str, struct nlmsghdr *n)
+static int ct_parse_labels(char *str, struct nlmsghdr *n, struct tc_conntrack * sel)
 {
 #define LABELS_SIZE	16
 	uint8_t labels[LABELS_SIZE], lmask[LABELS_SIZE];
@@ -182,7 +183,9 @@ static int ct_parse_labels(char *str, struct nlmsghdr *n)
 
 	if (hex2mem(str, labels, slen/2) < 0)
 		invarg("ct: labels must be a hex string\n", str);
-	addattr_l(n, MAX_MSG, TCA_CT_LABELS, labels, slen/2);
+
+	memcpy((char *)(sel->labels), labels, LABELS_SIZE);
+	/*addattr_l(n, MAX_MSG, TCA_CT_LABELS, labels, slen/2);*/
 
 	if (mask) {
 		if (hex2mem(mask, lmask, slen_mask/2) < 0)
@@ -191,7 +194,8 @@ static int ct_parse_labels(char *str, struct nlmsghdr *n)
 		memset(lmask, 0xff, sizeof(lmask));
 		slen_mask = sizeof(lmask)*2;
 	}
-	addattr_l(n, MAX_MSG, TCA_CT_LABELS_MASK, lmask, slen_mask/2);
+	memcpy((char *)(sel->labels_mask), lmask, LABELS_SIZE);
+	/*addattr_l(n, MAX_MSG, TCA_CT_LABELS_MASK, lmask, slen_mask/2);*/
 
 	return 0;
 }
@@ -200,14 +204,20 @@ static int
 parse_ct(struct action_util *a, int *argc_p, char ***argv_p, int tca_id,
 		struct nlmsghdr *n)
 {
-	struct tc_ct sel = {};
+	/*struct tc_ct sel = {};*/
+	inet_prefix addr1 = { .family = AF_UNSPEC, }, addr2 = { .family = AF_UNSPEC, };
+	__be16 port1, port2;
+	bool netport = false;
+	int attr;
+	struct tc_conntrack sel = { 0 };
 	char **argv = *argv_p;
 	struct rtattr *tail;
 	int argc = *argc_p;
 	int ct_action = 0;
 	int ret;
+	bool ct_added = false;
 
-	tail = addattr_nest(n, MAX_MSG, tca_id);
+	/*tail = addattr_nest(n, MAX_MSG, tca_id);*/
 
 	if (argc && matches(*argv, "ct") == 0)
 		NEXT_ARG_FWD();
@@ -216,19 +226,25 @@ parse_ct(struct action_util *a, int *argc_p, char ***argv_p, int tca_id,
 		if (matches(*argv, "zone") == 0) {
 			NEXT_ARG();
 
-			if (ct_parse_u16(*argv,
+			if (get_u16(&sel.zone, *argv, 10)) {
+                                fprintf(stderr, "simple: Illegal \"index\"\n");
+                                return -1;
+                        }
+			/*if (ct_parse_u16(*argv,
 					 TCA_CT_ZONE, TCA_CT_UNSPEC, n)) {
 				fprintf(stderr, "ct: Illegal \"zone\"\n");
 				return -1;
-			}
+			}*/
 		} else if (matches(*argv, "nat") == 0) {
 			ct_action |= TCA_CT_ACT_NAT;
 
 			NEXT_ARG();
-			if (matches(*argv, "src") == 0)
+			if (matches(*argv, "src") == 0) {
 				ct_action |= TCA_CT_ACT_NAT_SRC;
-			else if (matches(*argv, "dst") == 0)
+			}
+			else if (matches(*argv, "dst") == 0) {
 				ct_action |= TCA_CT_ACT_NAT_DST;
+			}
 			else
 				continue;
 
@@ -237,7 +253,7 @@ parse_ct(struct action_util *a, int *argc_p, char ***argv_p, int tca_id,
 				usage();
 
 			NEXT_ARG();
-			ret = ct_parse_nat_addr_range(*argv, n);
+			ret = ct_parse_nat_addr_range(*argv, n, &addr1, &addr2);
 			if (ret) {
 				fprintf(stderr, "ct: Illegal nat address range\n");
 				return -1;
@@ -248,27 +264,34 @@ parse_ct(struct action_util *a, int *argc_p, char ***argv_p, int tca_id,
 				continue;
 
 			NEXT_ARG();
-			ret = ct_parse_nat_port_range(*argv, n);
+			netport = true;
+			ret = ct_parse_nat_port_range(*argv, n, &port1, &port2);
 			if (ret) {
 				fprintf(stderr, "ct: Illegal nat port range\n");
 				return -1;
 			}
 		} else if (matches(*argv, "clear") == 0) {
+			sel.clear = true;
 			ct_action |= TCA_CT_ACT_CLEAR;
 		} else if (matches(*argv, "commit") == 0) {
+			sel.commit = true;
 			ct_action |= TCA_CT_ACT_COMMIT;
 		} else if (matches(*argv, "force") == 0) {
 			ct_action |= TCA_CT_ACT_FORCE;
 		} else if (matches(*argv, "index") == 0) {
 			NEXT_ARG();
 			if (get_u32(&sel.index, *argv, 10)) {
+                                fprintf(stderr, "simple: Illegal \"index\"\n");
+                                return -1;
+                        }
+			/*if (get_u32(&sel.index, *argv, 10)) {
 				fprintf(stderr, "ct: Illegal \"index\"\n");
 				return -1;
-			}
+			}*/
 		} else if (matches(*argv, "mark") == 0) {
 			NEXT_ARG();
 
-			ret = ct_parse_mark(*argv, n);
+			ret = ct_parse_mark(*argv, n, &sel);
 			if (ret) {
 				fprintf(stderr, "ct: Illegal \"mark\"\n");
 				return -1;
@@ -276,7 +299,7 @@ parse_ct(struct action_util *a, int *argc_p, char ***argv_p, int tca_id,
 		} else if (matches(*argv, "label") == 0) {
 			NEXT_ARG();
 
-			ret = ct_parse_labels(*argv, n);
+			ret = ct_parse_labels(*argv, n, &sel);
 			if (ret) {
 				fprintf(stderr, "ct: Illegal \"label\"\n");
 				return -1;
@@ -317,9 +340,43 @@ parse_ct(struct action_util *a, int *argc_p, char ***argv_p, int tca_id,
 	parse_action_control_dflt(&argc, &argv, &sel.action, false,
 				  TC_ACT_PIPE);
 
+	/*addattr_l(n, MAX_MSG, tca_id, NULL, 0);
 	addattr16(n, MAX_MSG, TCA_CT_ACTION, ct_action);
 	addattr_l(n, MAX_MSG, TCA_CT_PARMS, &sel, sizeof(sel));
-	addattr_nest_end(n, tail);
+	addattr_nest_end(n, tail);*/
+	tail = NLMSG_TAIL(n);
+	addattr_l(n, MAX_MSG, tca_id, NULL, 0);
+	addattr_l(n, MAX_MSG, TCA_CT_PARMS, &sel, sizeof(sel));
+
+
+	if(ct_action & TCA_CT_ACT_NAT) {
+		addattr(n, MAX_MSG, TCA_CT_NAT);
+		if (ct_action & TCA_CT_ACT_NAT_SRC) {
+			addattr(n, MAX_MSG, TCA_CT_NAT_SRC);
+		} else if (ct_action & TCA_CT_ACT_NAT_DST) {
+			addattr(n, MAX_MSG, TCA_CT_NAT_DST);
+		}
+		fprintf(stderr, "ct: addr:%d, addr2 %d\n", addr1.family, addr2.family);
+		if(addr1.family != AF_UNSPEC) {
+			attr = addr1.family == AF_INET ? TCA_CT_NAT_IPV4_MIN :
+					TCA_CT_NAT_IPV6_MIN;
+			addattr_l(n, MAX_MSG, attr, addr1.data, addr1.bytelen);
+			if(addr2.family != AF_UNSPEC) {
+				attr = addr2.family == AF_INET ? TCA_CT_NAT_IPV4_MAX :
+						TCA_CT_NAT_IPV6_MAX;
+				addattr_l(n, MAX_MSG, attr, addr2.data, addr2.bytelen);
+			} else {
+				attr = addr1.family == AF_INET ? TCA_CT_NAT_IPV4_MAX :
+					TCA_CT_NAT_IPV6_MAX;
+				addattr_l(n, MAX_MSG, attr, addr1.data, addr1.bytelen);
+			}
+		}
+		if(netport) {
+			addattr16(n, MAX_MSG, TCA_CT_NAT_PORT_MIN, port1);
+			addattr16(n, MAX_MSG, TCA_CT_NAT_PORT_MAX, port2);
+		}
+	}
+	tail->rta_len = (char *)NLMSG_TAIL(n) - (char *)tail;
 
 	*argc_p = argc;
 	*argv_p = argv;
@@ -440,7 +497,8 @@ static int print_ct(struct action_util *au, FILE *f, struct rtattr *arg)
 {
 	struct rtattr *tb[TCA_CT_MAX + 1];
 	const char *commit;
-	struct tc_ct *p;
+	/*struct tc_ct *p;*/
+	struct tc_conntrack *p;
 	int ct_action = 0;
 
 	if (arg == NULL)
@@ -453,7 +511,6 @@ static int print_ct(struct action_util *au, FILE *f, struct rtattr *arg)
 	}
 
 	p = RTA_DATA(tb[TCA_CT_PARMS]);
-
 	print_string(PRINT_ANY, "kind", "%s", "ct");
 
 	if (tb[TCA_CT_ACTION])

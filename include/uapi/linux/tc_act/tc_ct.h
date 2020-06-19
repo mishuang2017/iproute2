@@ -5,23 +5,41 @@
 #include <linux/types.h>
 #include <linux/pkt_cls.h>
 
+#define TCA_ACT_CONNTRACK 18
+
+struct tc_conntrack {
+        tc_gen;
+        __u16 zone;
+        __u32 labels[4];
+        __u32 labels_mask[4];
+        __u32 mark;
+        __u32 mark_mask;
+        bool commit;
+        bool clear;
+};
+
 enum {
 	TCA_CT_UNSPEC,
 	TCA_CT_PARMS,
+
 	TCA_CT_TM,
+	TCA_CT_PAD,
+
+	TCA_CT_NAT,
+	TCA_CT_NAT_SRC,
+	TCA_CT_NAT_DST,
+	TCA_CT_NAT_IPV4_MIN,	/* be32 */
+	TCA_CT_NAT_IPV4_MAX,	/* be32 */
+	TCA_CT_NAT_PORT_MIN,	/* be16 */
+	TCA_CT_NAT_PORT_MAX,	/* be16 */
 	TCA_CT_ACTION,		/* u16 */
 	TCA_CT_ZONE,		/* u16 */
 	TCA_CT_MARK,		/* u32 */
 	TCA_CT_MARK_MASK,	/* u32 */
 	TCA_CT_LABELS,		/* u128 */
 	TCA_CT_LABELS_MASK,	/* u128 */
-	TCA_CT_NAT_IPV4_MIN,	/* be32 */
-	TCA_CT_NAT_IPV4_MAX,	/* be32 */
 	TCA_CT_NAT_IPV6_MIN,	/* struct in6_addr */
 	TCA_CT_NAT_IPV6_MAX,	/* struct in6_addr */
-	TCA_CT_NAT_PORT_MIN,	/* be16 */
-	TCA_CT_NAT_PORT_MAX,	/* be16 */
-	TCA_CT_PAD,
 	__TCA_CT_MAX
 };
 
